@@ -262,7 +262,7 @@ func TestNewHTTPProxy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := NewHTTPProxy(filter, tt.debug, tt.monitor)
+			proxy := NewHTTPProxy(filter, nil, tt.debug, tt.monitor)
 			if proxy == nil {
 				t.Fatal("NewHTTPProxy() returned nil")
 			}
@@ -278,7 +278,7 @@ func TestNewHTTPProxy(t *testing.T) {
 
 func TestHTTPProxyStartStop(t *testing.T) {
 	filter := func(host string, port int) bool { return true }
-	proxy := NewHTTPProxy(filter, false, false)
+	proxy := NewHTTPProxy(filter, nil, false, false)
 
 	port, err := proxy.Start()
 	if err != nil {
@@ -300,7 +300,7 @@ func TestHTTPProxyStartStop(t *testing.T) {
 
 func TestHTTPProxyPortBeforeStart(t *testing.T) {
 	filter := func(host string, port int) bool { return true }
-	proxy := NewHTTPProxy(filter, false, false)
+	proxy := NewHTTPProxy(filter, nil, false, false)
 
 	if proxy.Port() != 0 {
 		t.Errorf("Port() before Start() = %d, want 0", proxy.Port())

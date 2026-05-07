@@ -185,15 +185,16 @@ func (m *Manager) Initialize() error {
 	}
 
 	filter := proxy.CreateDomainFilter(m.config, m.debug)
+	upstream := proxy.ParseUpstreamConfig(m.config)
 
-	m.httpProxy = proxy.NewHTTPProxy(filter, m.debug, m.monitor)
+	m.httpProxy = proxy.NewHTTPProxy(filter, upstream, m.debug, m.monitor)
 	httpPort, err := m.httpProxy.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start HTTP proxy: %w", err)
 	}
 	m.httpPort = httpPort
 
-	m.socksProxy = proxy.NewSOCKSProxy(filter, m.debug, m.monitor)
+	m.socksProxy = proxy.NewSOCKSProxy(filter, upstream, m.debug, m.monitor)
 	socksPort, err := m.socksProxy.Start()
 	if err != nil {
 		_ = m.httpProxy.Stop()

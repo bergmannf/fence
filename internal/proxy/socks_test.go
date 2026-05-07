@@ -84,7 +84,7 @@ func TestNewSOCKSProxy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := NewSOCKSProxy(filter, tt.debug, tt.monitor)
+			proxy := NewSOCKSProxy(filter, nil, tt.debug, tt.monitor)
 			if proxy == nil {
 				t.Fatal("NewSOCKSProxy() returned nil")
 			}
@@ -100,7 +100,7 @@ func TestNewSOCKSProxy(t *testing.T) {
 
 func TestSOCKSProxyStartStop(t *testing.T) {
 	filter := func(host string, port int) bool { return true }
-	proxy := NewSOCKSProxy(filter, false, false)
+	proxy := NewSOCKSProxy(filter, nil, false, false)
 
 	port, err := proxy.Start()
 	if err != nil {
@@ -122,7 +122,7 @@ func TestSOCKSProxyStartStop(t *testing.T) {
 
 func TestSOCKSProxyPortBeforeStart(t *testing.T) {
 	filter := func(host string, port int) bool { return true }
-	proxy := NewSOCKSProxy(filter, false, false)
+	proxy := NewSOCKSProxy(filter, nil, false, false)
 
 	if proxy.Port() != 0 {
 		t.Errorf("Port() before Start() = %d, want 0", proxy.Port())

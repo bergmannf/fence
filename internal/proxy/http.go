@@ -25,6 +25,7 @@ type HTTPProxy struct {
 	server   *http.Server
 	listener net.Listener
 	filter   FilterFunc
+	upstream *UpstreamConfig
 	debug    bool
 	monitor  bool
 	mu       sync.RWMutex
@@ -34,11 +35,13 @@ type HTTPProxy struct {
 // NewHTTPProxy creates a new HTTP proxy with the given filter.
 // If monitor is true, only blocked requests are logged.
 // If debug is true, all requests and filter rules are logged.
-func NewHTTPProxy(filter FilterFunc, debug, monitor bool) *HTTPProxy {
+// upstream may be nil to disable upstream proxy chaining.
+func NewHTTPProxy(filter FilterFunc, upstream *UpstreamConfig, debug, monitor bool) *HTTPProxy {
 	return &HTTPProxy{
-		filter:  filter,
-		debug:   debug,
-		monitor: monitor,
+		filter:   filter,
+		upstream: upstream,
+		debug:    debug,
+		monitor:  monitor,
 	}
 }
 
@@ -125,8 +128,14 @@ func (p *HTTPProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	p.logRequest("CONNECT", fmt.Sprintf("https://%s:%d", host, port), host, 200, "ALLOWED", time.Since(start))
 
-	// Connect to target
-	targetConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second) // #nosec G704 - validated by p.filter() allowlist
+	// Connect to target — either directly or via the upstream proxy.
+	var targetConn net.Conn
+	if p.upstream.ShouldProxy(host) {
+		p.logDebug("CONNECT via upstream proxy %s -> %s:%d", p.upstream.ProxyURL.Host, host, port)
+		targetConn, err = dialViaHTTPProxy(p.upstream.ProxyURL, host, port, 10*time.Second)
+	} else {
+		targetConn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second) // #nosec G704 - validated by p.filter() allowlist
+	}
 	if err != nil {
 		p.logDebug("CONNECT dial failed: %s:%d: %v", host, port, err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -211,8 +220,17 @@ func (p *HTTPProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	proxyReq.Header.Del("Proxy-Connection")
 	proxyReq.Header.Del("Proxy-Authorization")
 
+	var transport http.RoundTripper
+	if p.upstream.ShouldProxy(host) {
+		p.logDebug("HTTP via upstream proxy %s -> %s", p.upstream.ProxyURL.Host, host)
+		transport = &http.Transport{
+			Proxy: http.ProxyURL(p.upstream.ProxyURL),
+		}
+	}
+
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Transport: transport,
+		Timeout:   30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

@@ -25,6 +25,8 @@ type cleanNetworkConfig struct {
 	AllowLocalOutboundPorts []int    `json:"allowLocalOutboundPorts,omitempty"`
 	HTTPProxyPort           int      `json:"httpProxyPort,omitempty"`
 	SOCKSProxyPort          int      `json:"socksProxyPort,omitempty"`
+	UpstreamProxy           string   `json:"upstreamProxy,omitempty"`
+	UpstreamProxyDomains    []string `json:"upstreamProxyDomains,omitempty"`
 }
 
 // cleanFilesystemConfig is used for JSON output with omitempty to skip empty fields.
@@ -109,6 +111,8 @@ func MarshalConfigJSON(cfg *Config) ([]byte, error) {
 		AllowLocalOutboundPorts: cfg.Network.AllowLocalOutboundPorts,
 		HTTPProxyPort:           cfg.Network.HTTPProxyPort,
 		SOCKSProxyPort:          cfg.Network.SOCKSProxyPort,
+		UpstreamProxy:           cfg.Network.UpstreamProxy,
+		UpstreamProxyDomains:    cfg.Network.UpstreamProxyDomains,
 	}
 	if !isNetworkEmpty(network) {
 		clean.Network = &network
@@ -187,7 +191,9 @@ func isNetworkEmpty(n cleanNetworkConfig) bool {
 		n.AllowLocalOutbound == nil &&
 		len(n.AllowLocalOutboundPorts) == 0 &&
 		n.HTTPProxyPort == 0 &&
-		n.SOCKSProxyPort == 0
+		n.SOCKSProxyPort == 0 &&
+		n.UpstreamProxy == "" &&
+		len(n.UpstreamProxyDomains) == 0
 }
 
 func isFilesystemEmpty(f cleanFilesystemConfig) bool {

@@ -15,6 +15,7 @@ type SOCKSProxy struct {
 	server   *socks5.Server
 	listener net.Listener
 	filter   FilterFunc
+	upstream *UpstreamConfig
 	debug    bool
 	monitor  bool
 	port     int
@@ -23,11 +24,13 @@ type SOCKSProxy struct {
 // NewSOCKSProxy creates a new SOCKS5 proxy with the given filter.
 // If monitor is true, only blocked connections are logged.
 // If debug is true, all connections are logged.
-func NewSOCKSProxy(filter FilterFunc, debug, monitor bool) *SOCKSProxy {
+// upstream may be nil to disable upstream proxy chaining.
+func NewSOCKSProxy(filter FilterFunc, upstream *UpstreamConfig, debug, monitor bool) *SOCKSProxy {
 	return &SOCKSProxy{
-		filter:  filter,
-		debug:   debug,
-		monitor: monitor,
+		filter:   filter,
+		upstream: upstream,
+		debug:    debug,
+		monitor:  monitor,
 	}
 }
 
@@ -69,13 +72,33 @@ func (p *SOCKSProxy) Start() (int, error) {
 	p.listener = listener
 	p.port = listener.Addr().(*net.TCPAddr).Port
 
-	server := socks5.NewServer(
+	opts := []socks5.Option{
 		socks5.WithRule(&fenceRuleSet{
 			filter:  p.filter,
 			debug:   p.debug,
 			monitor: p.monitor,
 		}),
-	)
+	}
+	if p.upstream != nil && p.upstream.ProxyURL != nil {
+		upstream := p.upstream // capture for closure
+		debug := p.debug
+		opts = append(opts, socks5.WithDialAndRequest(
+			func(ctx context.Context, network, addr string, req *socks5.Request) (net.Conn, error) {
+				host := req.DestAddr.FQDN
+				if host == "" {
+					host = req.DestAddr.IP.String()
+				}
+				if upstream.ShouldProxy(host) {
+					if debug {
+						fencelog.Printf("[fence:socks] via upstream proxy %s -> %s\n", upstream.ProxyURL.Host, addr)
+					}
+					return dialViaHTTPProxy(upstream.ProxyURL, host, req.DestAddr.Port, 10*time.Second)
+				}
+				return net.Dial(network, addr) //nolint:noctx
+			},
+		))
+	}
+	server := socks5.NewServer(opts...)
 	p.server = server
 
 	go func() {

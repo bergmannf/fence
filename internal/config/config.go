@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -39,9 +40,11 @@ type NetworkConfig struct {
 	// macOS reaches any localhost port when allowLocalOutbound is true; Linux
 	// keeps --unshare-net so the sandbox's loopback is isolated from the
 	// host's, and each listed port is bridged back to host 127.0.0.1:<port>.
-	AllowLocalOutboundPorts []int `json:"allowLocalOutboundPorts,omitempty" description:"Linux-only. TCP ports on the host's 127.0.0.1 that the sandbox may connect to when allowLocalOutbound is true. Each listed port is forwarded from sandbox loopback to host loopback via a per-port bridge. Ignored on macOS (which allows arbitrary localhost ports when allowLocalOutbound is true)."`
-	HTTPProxyPort           int   `json:"httpProxyPort,omitempty" description:"Port for the internal HTTP proxy used to enforce domain filtering. Set automatically by fence; only override for advanced configurations."`
-	SOCKSProxyPort          int   `json:"socksProxyPort,omitempty" description:"Port for the internal SOCKS proxy used to enforce domain filtering. Set automatically by fence; only override for advanced configurations."`
+	AllowLocalOutboundPorts []int    `json:"allowLocalOutboundPorts,omitempty" description:"Linux-only. TCP ports on the host's 127.0.0.1 that the sandbox may connect to when allowLocalOutbound is true. Each listed port is forwarded from sandbox loopback to host loopback via a per-port bridge. Ignored on macOS (which allows arbitrary localhost ports when allowLocalOutbound is true)."`
+	HTTPProxyPort           int      `json:"httpProxyPort,omitempty" description:"Port for the internal HTTP proxy used to enforce domain filtering. Set automatically by fence; only override for advanced configurations."`
+	SOCKSProxyPort          int      `json:"socksProxyPort,omitempty" description:"Port for the internal SOCKS proxy used to enforce domain filtering. Set automatically by fence; only override for advanced configurations."`
+	UpstreamProxy           string   `json:"upstreamProxy,omitempty" description:"URL of an upstream HTTP or HTTPS proxy to chain allowed requests through (e.g. \"http://proxy.corp:8080\" or \"https://proxy.corp:443\"). When set, requests matching upstreamProxyDomains are forwarded via this proxy instead of connecting directly."`
+	UpstreamProxyDomains    []string `json:"upstreamProxyDomains,omitempty" description:"Domains whose traffic should be routed through the upstream proxy. Supports wildcards (e.g. *.internal.corp). If empty while upstreamProxy is set, no requests are forwarded upstream."`
 }
 
 // EffectiveAllowLocalOutbound returns whether outbound connections to
@@ -394,6 +397,16 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid denied domain %q: %w", domain, err)
 		}
 	}
+	if c.Network.UpstreamProxy != "" {
+		if err := validateUpstreamProxy(c.Network.UpstreamProxy); err != nil {
+			return fmt.Errorf("invalid network.upstreamProxy: %w", err)
+		}
+	}
+	for _, domain := range c.Network.UpstreamProxyDomains {
+		if err := validateDomainPattern(domain); err != nil {
+			return fmt.Errorf("invalid upstream proxy domain %q: %w", domain, err)
+		}
+	}
 	for _, port := range c.Network.AllowLocalOutboundPorts {
 		if port < 1 || port > 65535 {
 			return fmt.Errorf("invalid network.allowLocalOutboundPorts entry %d (expected 1-65535)", port)
@@ -493,6 +506,20 @@ func (c *CommandConfig) EffectiveRuntimeExecPolicy() RuntimeExecPolicy {
 		return RuntimeExecPolicyPath
 	}
 	return c.RuntimeExecPolicy
+}
+
+func validateUpstreamProxy(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("only http:// and https:// upstream proxies are supported, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return errors.New("upstream proxy URL must include a host")
+	}
+	return nil
 }
 
 func validateDomainPattern(pattern string) error {
@@ -725,6 +752,10 @@ func Merge(base, override *Config) *Config {
 			// Port fields: override wins if non-zero
 			HTTPProxyPort:  mergeInt(base.Network.HTTPProxyPort, override.Network.HTTPProxyPort),
 			SOCKSProxyPort: mergeInt(base.Network.SOCKSProxyPort, override.Network.SOCKSProxyPort),
+
+			// Upstream proxy: override wins if non-empty
+			UpstreamProxy:        mergeString(base.Network.UpstreamProxy, override.Network.UpstreamProxy),
+			UpstreamProxyDomains: mergeStrings(base.Network.UpstreamProxyDomains, override.Network.UpstreamProxyDomains),
 		},
 
 		Filesystem: FilesystemConfig{
@@ -842,6 +873,14 @@ func mergeDeviceMode(base, override DeviceMode) DeviceMode {
 // mergeInt returns override if non-zero, otherwise base.
 func mergeInt(base, override int) int {
 	if override != 0 {
+		return override
+	}
+	return base
+}
+
+// mergeString returns override if non-empty, otherwise base.
+func mergeString(base, override string) string {
+	if override != "" {
 		return override
 	}
 	return base

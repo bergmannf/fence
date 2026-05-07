@@ -230,6 +230,17 @@
         "socksProxyPort": {
           "description": "Port for the internal SOCKS proxy used to enforce domain filtering. Set automatically by fence; only override for advanced configurations.",
           "type": "integer"
+        },
+        "upstreamProxy": {
+          "description": "URL of an upstream HTTP or HTTPS proxy to chain allowed requests through (e.g. \"http://proxy.corp:8080\" or \"https://proxy.corp:443\"). When set, requests matching upstreamProxyDomains are forwarded via this proxy instead of connecting directly.",
+          "type": "string"
+        },
+        "upstreamProxyDomains": {
+          "description": "Domains whose traffic should be routed through the upstream proxy. Supports wildcards (e.g. *.internal.corp). If empty while upstreamProxy is set, no requests are forwarded upstream.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
